@@ -25,7 +25,7 @@ import (
 func TestBucket(t *testing.T) {
 	req := require.New(t)
 
-	b := newBucket(0)
+	b := newBucket(0, 0)
 	req.Nil(b.fence.next())
 	b.fence.linkTo(newFence())
 	req.Equal(&b.fence, b.last())
@@ -151,8 +151,13 @@ func TestBucket(t *testing.T) {
 	req.Equal(uint32(len(searchTests))-b.count, b1.count)
 
 	// test delete
-	req.False(b.del(searchTests[2].k, searchTests[3].hash))
-	req.True(b.del(searchTests[2].k, searchTests[2].hash))
+	node = hashNode{
+		hash: searchTests[3].hash,
+		key:  unsafe.Pointer(&searchTests[2].k),
+	}
+	req.False(b.del(&node))
+	node.hash = searchTests[2].hash
+	req.True(b.del(&node))
 	req.Equal(splitTests[7].count-1, b.count)
 
 	// final count

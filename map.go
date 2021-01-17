@@ -17,15 +17,14 @@ package lockfree
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"math"
 	"sync"
 	"sync/atomic"
 	"unsafe"
 )
 
 const (
-	bucketOverflow  = 256
-	bucketUnderflow = 85
+	bucketOverflow  = 32
+	bucketUnderflow = 10
 )
 
 type (
@@ -61,19 +60,16 @@ type (
 // NewHashMap creates a new hashmap
 func NewHashMap() HashMap {
 	h := hmap{
-		B:       1, // start from 2 buckets
-		buckets: make([]*bucket, 3),
+		buckets: make([]*bucket, 1),
 	}
 
 	// generate 2 random seeds
 	binary.Read(rand.Reader, binary.BigEndian, &h.k0)
 	binary.Read(rand.Reader, binary.BigEndian, &h.k1)
 
-	// init buckets
-	for i := 1; i < len(h.buckets); i++ {
-		h.buckets[i] = newBucket(0)
-		h.buckets[i].fence.linkTo(newFence())
-	}
+	// create the very first bucket
+	h.buckets[0] = newBucket(0, 0)
+	h.buckets[0].fence.linkTo(newFence())
 	return &h
 }
 
@@ -97,34 +93,76 @@ func (h *hmap) Set(key, value interface{}) {
 		atomic.AddUint64(&h.count, 1)
 	}
 
-	if (atomic.LoadUint64(&h.count) >> atomic.LoadUint32(&h.B)) > bucketOverflow {
+	if h.isOverflow() {
 		h.expand()
 	}
 }
 
+func (h *hmap) isOverflow() bool {
+	return atomic.LoadUint64(&h.count)>>atomic.LoadUint32(&h.B) > bucketOverflow
+}
+
 func (h *hmap) Del(key interface{}) {
 	hash := h.hash(key)
-	if h.getBucket(hash).del(key, hash) {
+	node := hashNode{
+		hash: hash,
+		key:  unsafe.Pointer(&key),
+	}
+	if h.getBucket(hash).del(&node) {
 		atomic.AddUint64(&h.count, ^uint64(0))
 	}
 }
 
 func (h *hmap) getBucket(hash uint64) *bucket {
 	h.RLock()
-	start := (1 << h.B) - 1
-	b := h.buckets[start+int(hash>>(64-h.B))]
+	b := h.buckets[hash>>(64-h.B)]
 	h.RUnlock()
 	return b
 }
 
 func (h *hmap) expand() {
 	h.Lock()
-	start := (1 << h.B) - 1
-	pivot := uint64(math.MaxUint64)>>(h.B+1) + 1
-	for i := 0; i < (1 << h.B); i++ {
-		b := h.buckets[start+i]
-		h.buckets = append(h.buckets, b, b.split(pivot*(2*uint64(i)+1)))
+	defer h.Unlock()
+	if !h.isOverflow() {
+		return
 	}
+
+	// double the buckets list
+	h.buckets = append(h.buckets, h.buckets...)
+
+	// move i-th item to 2i-th position --> [00, x, 01, x, 10, x, 11, x]
+	// then split the buckets
+	// [00, x, 01, x, 10, x, 11, x] --> [000, 001, 010, 011, 100, 101, 110, 111]
 	atomic.AddUint32(&h.B, 1)
-	h.Unlock()
+	for i := len(h.buckets)/2 - 1; i >= 0; i-- {
+		if i != 0 {
+			h.buckets[2*i] = nil
+			h.buckets[2*i] = h.buckets[i]
+		}
+		h.buckets[2*i+1] = nil
+		h.buckets[2*i+1] = h.buckets[2*i].split(uint64(2*i+1) << (64 - h.B))
+	}
+}
+
+func (h *hmap) info() {
+	var count, min, max uint32
+	min = 1<<32 - 1
+	for i := 0; i < (1 << h.B); i++ {
+		b := h.buckets[i]
+		count += b.count
+		if b.count < min {
+			min = b.count
+		}
+		if b.count > max {
+			max = b.count
+		}
+	}
+	println("++==========================")
+	println("|| total key count =", h.count)
+	println("|| bucket number =", 1<<h.B)
+	println("|| key per bucket =", h.count>>h.B)
+	println("|| total key count =", count)
+	println("|| min keys per bucket =", min)
+	println("|| max keys per bucket =", max)
+	println("++==========================")
 }

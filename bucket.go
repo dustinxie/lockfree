@@ -15,7 +15,6 @@
 package lockfree
 
 import (
-	"math"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -27,10 +26,10 @@ type bucket struct {
 	fence hashNode // dummy hashNode that marks beginning of a bucket
 }
 
-func newBucket(count uint32) *bucket {
+func newBucket(count uint32, hash uint64) *bucket {
 	return &bucket{
 		count: count,
-		fence: hashNode{hash: math.MaxUint64},
+		fence: hashNode{hash: hash},
 	}
 }
 
@@ -82,13 +81,9 @@ func (b *bucket) upsert(node *hashNode) bool {
 	}
 }
 
-func (b *bucket) del(key interface{}, hash uint64) bool {
+func (b *bucket) del(node *hashNode) bool {
 	b.Lock()
 	defer b.Unlock()
-	node := &hashNode{
-		hash: hash,
-		key:  unsafe.Pointer(&key),
-	}
 	curr, next, insert := b.search(node)
 	if insert {
 		return false
@@ -128,14 +123,14 @@ func (b *bucket) pivot(hash uint64) (*hashNode, *hashNode, uint32) {
 	return curr, next, count
 }
 
-// split finds the pivot with hash < input, and returns the new bucket starting with pivot
+// split breaks the bucket at the given hash, and returns the new bucket
 func (b *bucket) split(hash uint64) *bucket {
 	b.Lock()
-	defer b.Unlock()
 	curr, next, count := b.pivot(hash)
-	b1 := newBucket(b.count - count)
+	b1 := newBucket(b.count-count, hash)
 	b1.fence.linkTo(next)
 	b.count = count
 	curr.linkTo(&b1.fence)
+	b.Unlock()
 	return b1
 }
