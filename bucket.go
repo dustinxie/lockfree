@@ -134,3 +134,13 @@ func (b *bucket) split(hash uint64) *bucket {
 	b.Unlock()
 	return b1
 }
+
+// merge merges 2 buckets into 1
+func (b *bucket) merge(b1 *bucket) {
+	b.Lock()
+	b1.Lock()
+	b.count += b1.count
+	b.last().linkTo(b1.fence.next())
+	b1.Unlock()
+	b.Unlock()
+}

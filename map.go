@@ -111,6 +111,15 @@ func (h *hmap) Del(key interface{}) {
 	if h.getBucket(hash).del(&node) {
 		atomic.AddUint64(&h.count, ^uint64(0))
 	}
+
+	if h.isUnderflow() {
+		h.shrink()
+	}
+}
+
+func (h *hmap) isUnderflow() bool {
+	B := atomic.LoadUint32(&h.B)
+	return B > 5 && (atomic.LoadUint64(&h.count)>>B) < bucketUnderflow
 }
 
 func (h *hmap) getBucket(hash uint64) *bucket {
@@ -142,6 +151,30 @@ func (h *hmap) expand() {
 		h.buckets[2*i+1] = nil
 		h.buckets[2*i+1] = h.buckets[2*i].split(uint64(2*i+1) << (64 - h.B))
 	}
+}
+
+func (h *hmap) shrink() {
+	h.Lock()
+	defer h.Unlock()
+	if !h.isUnderflow() {
+		return
+	}
+
+	// merge the buckets
+	// [000, 001, 010, 011, 100, 101, 110, 111] --> [00, x, 01, x, 10, x, 11, x]
+	// then halve the list
+	// [00, x, 01, x, 10, x, 11, x] --> [00, 01, 10, 11]
+	half := len(h.buckets) / 2
+	for i := 0; i < half; i++ {
+		h.buckets[2*i].merge(h.buckets[2*i+1])
+		h.buckets[2*i+1] = nil
+		if i != 0 {
+			h.buckets[i] = nil
+			h.buckets[i] = h.buckets[2*i]
+		}
+	}
+	atomic.AddUint32(&h.B, ^uint32(0))
+	h.buckets = h.buckets[:half]
 }
 
 func (h *hmap) info() {
