@@ -22,11 +22,6 @@ import (
 	"unsafe"
 )
 
-const (
-	bucketOverflow  = 32
-	bucketUnderflow = 10
-)
-
 type (
 	// HashMap is a map[key]value
 	HashMap interface {
@@ -50,6 +45,7 @@ type (
 
 	hmap struct {
 		sync.RWMutex
+		bSize   uint8     // split once average bucket size reaches this
 		B       uint32    // log_2 of number of buckets (can hold up to loadFactor * 2^B items)
 		count   uint64    // number of items in the map
 		k0, k1  uint64    // hash seed
@@ -57,10 +53,27 @@ type (
 	}
 )
 
+// Option provides options for instantiating HashMap
+type Option func(*hmap)
+
+// BucketSizeOption sets the average size of bucket
+func BucketSizeOption(size uint8) Option {
+	return func(h *hmap) {
+		h.bSize = size
+	}
+}
+
 // NewHashMap creates a new hashmap
-func NewHashMap() HashMap {
+func NewHashMap(opts ...Option) HashMap {
 	h := hmap{
+		bSize:   24,
 		buckets: make([]*bucket, 1),
+	}
+	for _, opt := range opts {
+		opt(&h)
+	}
+	if h.bSize < 6 {
+		h.bSize = 6
 	}
 
 	// generate 2 random seeds
@@ -99,7 +112,7 @@ func (h *hmap) Set(key, value interface{}) {
 }
 
 func (h *hmap) isOverflow() bool {
-	return atomic.LoadUint64(&h.count)>>atomic.LoadUint32(&h.B) > bucketOverflow
+	return atomic.LoadUint64(&h.count)>>atomic.LoadUint32(&h.B) > uint64(h.bSize)
 }
 
 func (h *hmap) Del(key interface{}) {
@@ -119,7 +132,7 @@ func (h *hmap) Del(key interface{}) {
 
 func (h *hmap) isUnderflow() bool {
 	B := atomic.LoadUint32(&h.B)
-	return B > 5 && (atomic.LoadUint64(&h.count)>>B) < bucketUnderflow
+	return B > 4 && (atomic.LoadUint64(&h.count)>>B) <= uint64(h.bSize/3)
 }
 
 func (h *hmap) getBucket(hash uint64) *bucket {
