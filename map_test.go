@@ -38,7 +38,7 @@ func TestNewHashMap(t *testing.T) {
 		{"c", []byte("c")},
 	}
 
-	m := NewHashMap()
+	m := NewHashMap(BucketSizeOption(4))
 	for i := range tests {
 		m.Set(tests[i].k, tests[i].v)
 	}
@@ -70,6 +70,33 @@ func TestNewHashMap(t *testing.T) {
 			req.Nil(v)
 		}
 	}
+
+	// add another 1000 keys
+	for i := 4; i < 1004; i++ {
+		m.Set(i, i*i)
+	}
+
+	// test Range()
+	m.Lock()
+	var (
+		total, match int
+	)
+	for k, v, ok := m.Next(); ok; k, v, ok = m.Next() {
+		for i := range tests {
+			if k == tests[i].k {
+				req.Equal(tests[i].v, v)
+				match++
+			}
+		}
+		total++
+	}
+	k, v, ok := m.Next()
+	req.False(ok)
+	req.Nil(k)
+	req.Nil(v)
+	m.Unlock()
+	req.Equal(len(tests)-1, match)
+	req.Equal(1000+len(tests)-1, total)
 
 	// test 4 threads
 	wg := sync.WaitGroup{}

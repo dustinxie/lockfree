@@ -36,6 +36,15 @@ type (
 
 		// delete(map, key)
 		Del(key interface{})
+
+		// call this before for k, v := range map
+		Lock()
+
+		// call this after for k, v := range map
+		Unlock()
+
+		// returns next <k, v> in the map
+		Next() (interface{}, interface{}, bool)
 	}
 
 	// Hash64 returns 64-bit hash
@@ -44,12 +53,14 @@ type (
 	}
 
 	hmap struct {
-		sync.RWMutex
+		rwLock  sync.RWMutex
 		bSize   uint8     // split once average bucket size reaches this
 		B       uint32    // log_2 of number of buckets (can hold up to loadFactor * 2^B items)
 		count   uint64    // number of items in the map
 		k0, k1  uint64    // hash seed
 		buckets []*bucket // array of 2^B Buckets
+		iter    int       // bucket index when ranging the map
+		curr    *hashNode // current node when ranging the map
 	}
 )
 
@@ -135,16 +146,41 @@ func (h *hmap) isUnderflow() bool {
 	return B > 4 && (atomic.LoadUint64(&h.count)>>B) <= uint64(h.bSize/3)
 }
 
+func (h *hmap) Lock() {
+	h.rwLock.Lock()
+	h.iter = 0
+	h.curr = &h.buckets[0].fence
+}
+
+func (h *hmap) Unlock() {
+	h.rwLock.Unlock()
+}
+
+func (h *hmap) Next() (interface{}, interface{}, bool) {
+	next := h.curr.next()
+	if !isFence(next) {
+		h.curr = next
+		return *(*interface{})(next.key), *(*interface{})(next.value()), true
+	}
+	if h.iter == 1<<h.B-1 {
+		return nil, nil, false
+	}
+	h.iter++
+	h.curr = next
+	return h.Next()
+
+}
+
 func (h *hmap) getBucket(hash uint64) *bucket {
-	h.RLock()
+	h.rwLock.RLock()
 	b := h.buckets[hash>>(64-h.B)]
-	h.RUnlock()
+	h.rwLock.RUnlock()
 	return b
 }
 
 func (h *hmap) expand() {
-	h.Lock()
-	defer h.Unlock()
+	h.rwLock.Lock()
+	defer h.rwLock.Unlock()
 	if !h.isOverflow() {
 		return
 	}
@@ -167,8 +203,8 @@ func (h *hmap) expand() {
 }
 
 func (h *hmap) shrink() {
-	h.Lock()
-	defer h.Unlock()
+	h.rwLock.Lock()
+	defer h.rwLock.Unlock()
 	if !h.isUnderflow() {
 		return
 	}
