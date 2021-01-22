@@ -1,6 +1,6 @@
 module github.com/dustinxie/lockfree
 
-go 1.14
+go 1.15
 
 require (
 	github.com/dchest/siphash v1.2.2
