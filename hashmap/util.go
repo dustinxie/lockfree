@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package lockfree
+package hashmap
 
 import (
 	"fmt"
@@ -31,25 +31,25 @@ const (
 func (h *hmap) hash(key interface{}) uint64 {
 	switch v := key.(type) {
 	case uint8:
-		return memhash(h.k0, h.k1, unsafe.Pointer(&v), 1)
+		return memhash(h.k0, h.k1+1, unsafe.Pointer(&v), 1)
 	case int8:
 		return memhash(h.k0, h.k1-1, unsafe.Pointer(&v), 1)
 	case uint16:
-		return memhash(h.k0, h.k1, unsafe.Pointer(&v), 2)
+		return memhash(h.k0, h.k1+1, unsafe.Pointer(&v), 2)
 	case int16:
 		return memhash(h.k0, h.k1-1, unsafe.Pointer(&v), 2)
 	case uint32:
-		return memhash(h.k0, h.k1, unsafe.Pointer(&v), 4)
+		return memhash(h.k0, h.k1+1, unsafe.Pointer(&v), 4)
 	case int32:
 		return memhash(h.k0, h.k1-1, unsafe.Pointer(&v), 4)
 	case uint64:
 		return v
 	case int64:
-		return memhash(h.k0, h.k1, unsafe.Pointer(&v), 8)
+		return memhash(h.k0, h.k1-1, unsafe.Pointer(&v), 8)
 	case uint:
-		return memhash(h.k0, h.k1+1, unsafe.Pointer(&v), intSize)
-	case int:
 		return memhash(h.k0, h.k1+2, unsafe.Pointer(&v), intSize)
+	case int:
+		return memhash(h.k0, h.k1-2, unsafe.Pointer(&v), intSize)
 	case []byte:
 		return siphash.Hash(h.k0, h.k1, v)
 	case string:
@@ -59,7 +59,7 @@ func (h *hmap) hash(key interface{}) uint64 {
 			Len:  hdr.Len,
 			Cap:  hdr.Len,
 		}
-		return siphash.Hash(h.k0, h.k1-1, *(*[]byte)(unsafe.Pointer(&sh)))
+		return siphash.Hash(h.k0-1, h.k1, *(*[]byte)(unsafe.Pointer(&sh)))
 	default:
 		if h, ok := v.(Hash64); ok {
 			return h.Sum64()
