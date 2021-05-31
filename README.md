@@ -6,12 +6,31 @@ Golang lock-free concurrent Hashmap
 [![Go Report card](https://goreportcard.com/badge/github.com/dustinxie/lockfree)](https://goreportcard.com/report/github.com/dustinxie/lockfree)
 [![Go Reference](https://pkg.go.dev/badge/github.com/dustinxie/lockfree.svg)](https://pkg.go.dev/github.com/dustinxie/lockfree)
 ---
-## Features
-- Safe concurrent access by multiple threads/go-routines
-- Allow different key types in the same map
-- 3x faster than `sync.Map`
+# Table of Contents
+- [Overview](#overview)
+  * [Hashmap](#hashmap)
+  * [Queue](#queue)
+- [Benchmark](#benchmark)
 
-## How to use
+# Overview
+Golang's native data structures (such as map, List) are not designed to be
+thread-safe at first place. A common solution is to use mutex to synchronize
+access to data that are shared by multiple threads. This is however not very
+efficient due to multiple threads contending a single read/write mutex and in
+general will lead to performance loss in timing.
+
+A more efficient alternative is to leverage the [CAS](https://en.wikipedia.org/wiki/Compare-and-swap)
+technique to remove (or significantly reduce) the use of mutex. Several data
+structures are implemented using this idea.
+
+Benchmark results show that the CAS solution is generally 2~3x times faster as
+compared to solution using mutex.
+
+For technical details of the implementation, click [here](/technical.md)
+
+## Hashmap
+- can be concurrently accessed
+- allows different key types in the same map
 ```go
 package anyname
 
@@ -23,6 +42,7 @@ func main() {
 	// set
 	m.Set(1, "one")
 	m.Set("one", 1)
+	size := m.Len() // size = 2
 	
 	// get
 	s, ok := m.Get(1)     // s.(string) = "one", ok = true
@@ -31,8 +51,9 @@ func main() {
 	// delete
 	m.Del(1)
 	m.Del("one")
+	size = m.Len() // map is empty, size = 0
 	
-	// can have multiple go-routines/threads call m.Set/Get/Del
+	// can have multiple threads/go-routines call m.Set/Get/Del
 }
 ```
 
@@ -42,8 +63,13 @@ size gives faster access speed with more memory. While a larger size costs less
 memory but gives slower access speed. See the benchmark section below for details.
 
 ```
+import (
+    "github.com/dustinxie/lockfree"
+    "github.com/dustinxie/lockfree/hashmap"
+)
+
 func main() {
-	m := lockfree.NewHashMap(BucketSizeOption(16))
+	m := lockfree.NewHashMap(hashmap.BucketSizeOption(16))
 }
 ```
 The default bucket size is 24 if a BucketSizeOption is not set.
@@ -70,14 +96,43 @@ func rangeMap(m HashMap) error {
 	return nil
 }
 ```
- 
-## Benchmark
-The benchmark program starts 10 go-routines, each would `Set()` 10,000 keys,
-`Get()` these 10,000 keys, and finally `Del()` them, for a total of 100,000
-keys, and 300,000 map operations.
+## Queue
+- FIFO list that can be concurrently accessed
+- can put different data type into the queue
+```go
+package anyname
 
-Here's the timing and memory allocation data (2.2GHz Intel Core i7, 16GB
-1600MHz DDR3 RAM):
+import "github.com/dustinxie/lockfree"
+
+func main() {
+	q := lockfree.NewQueue()
+	
+	// add to the queue
+	q.Enque(1)
+	q.Enque("one")
+	size := q.Len() // size = 2
+	
+	// remove from queue
+	i := q.Deque() // i.(int) = 1
+	s := q.Deque() // s.(string) = "one"
+	
+	size = q.Len()  // queue is empty, size = 0
+	s = q.Deque() // queue is empty, s = nil
+	
+	// can have multiple threads/go-routines call q.Enque/Deque
+}
+```
+
+# Benchmark
+The benchmark program starts 10 go-routines, each would perform a certain set
+of tasks concurrently. Tests are run on a machine with 2.2GHz Intel Core i7,
+and 16GB 1600MHz DDR3 RAM.
+
+## Benchmark Hashmap
+The task is `Set()` 10,000 keys, `Get()` these 10,000 keys, and finally `Del()`
+them, for a total of 100,000 keys, and 300,000 map operations.
+
+Here's the timing and memory allocation data:
 
 ```
 BenchmarkLockfreeHashMap-8      27      42189873 ns/op      9935506 B/op     703336 allocs/op
@@ -89,11 +144,8 @@ with bucket size = 16 (faster time, more memory)
 BenchmarkLockfreeHashMap-8      27      41867046 ns/op     10279584 B/op     707433 allocs/op
 ```
 Couple of observations:
-1. The lockfree hashmap is 3x faster than `sync.Map`, and costs 37% less memory
+1. The lockfree hashmap is 3x as fast as `sync.Map`, and costs 37% less memory
 2. The decrease in time (and increase in memory) of using bucket size 16 vs. 24
 is very minimal, less than 4%
 3. Golang's native map + RWMutex to synchronize access is even slightly faster
 than `sync.Map`, and costs least amount of memory
-
-## Tech details
-For technical details of the implementation, click [here](/technical.md)
