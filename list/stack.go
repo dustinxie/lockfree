@@ -42,11 +42,10 @@ func (s *stack) Push(v interface{}) {
 	n := node{
 		val: unsafe.Pointer(&v),
 	}
-	headAddr := (*unsafe.Pointer)(unsafe.Pointer(&s.head))
 	for {
-		head := atomic.LoadPointer(headAddr)
-		n.nxt = head
-		if casAddr(headAddr, head, unsafe.Pointer(&n)) {
+		tip := atomic.LoadPointer(&s.head.nxt)
+		n.nxt = tip
+		if s.head.casNext(tip, unsafe.Pointer(&n)) {
 			atomic.AddUint64(&s.count, 1)
 			return
 		}
@@ -54,20 +53,23 @@ func (s *stack) Push(v interface{}) {
 }
 
 func (s *stack) Pop() interface{} {
-	headAddr := (*unsafe.Pointer)(unsafe.Pointer(&s.head))
 	for {
-		head := (*node)(atomic.LoadPointer(headAddr))
-		n := head.next()
-		if n == nil {
+		tip := s.head.next()
+		if tip == nil {
 			return nil
 		}
-		if casAddr(headAddr, unsafe.Pointer(head), unsafe.Pointer(n)) {
+		nn := tip.next()
+		if s.head.casNext(unsafe.Pointer(tip), unsafe.Pointer(nn)) {
 			atomic.AddUint64(&s.count, ^uint64(0))
-			return *(*interface{})(head.value())
+			return *(*interface{})(tip.value())
 		}
 	}
 }
 
 func (s *stack) Peek() interface{} {
-	return *(*interface{})(s.head.value())
+	tip := s.head.next()
+	if tip != nil {
+		return *(*interface{})(tip.value())
+	}
+	return nil
 }
