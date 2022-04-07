@@ -104,7 +104,7 @@ m.Iterate(func(_k interface{}, _v interface{}) error {
 	k := _k.(string)
 	v := _v.(int64)
 	// do something
-    return nil
+	return nil
 })
 ```
 
