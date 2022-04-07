@@ -97,4 +97,28 @@ func TestHmap(t *testing.T) {
 	req.Equal(len(tests)-1, match)
 	req.Equal(10000+len(tests)-1, total)
 	m.info()
+
+	// test Iterate()
+	total = 0
+	match = 0
+	err := m.Iterate(func(k interface{}, v interface{}) error {
+		for i := range tests {
+			if k == tests[i].k {
+				req.Equal(tests[i].v, v)
+				match++
+			}
+		}
+		total++
+		return nil
+	})
+	req.Nil(err)
+
+	k, v, ok = m.Next()
+	req.False(ok)
+	req.Nil(k)
+	req.Nil(v)
+	m.Unlock()
+	req.Equal(len(tests)-1, match)
+	req.Equal(10000+len(tests)-1, total)
+	m.info()
 }

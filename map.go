@@ -41,6 +41,9 @@ type (
 
 		// returns next <k, v> in the map
 		Next() (interface{}, interface{}, bool)
+
+		// iterate over all element
+		Iterate(func(_k interface{}, _v interface{}) error) error
 	}
 )
 

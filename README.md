@@ -79,13 +79,13 @@ The default bucket size is 24 if a BucketSizeOption is not set.
 ### for k, v := range
 Since this is a concurrent hashmap, you'll need to call `Lock()` before doing a
 range operation. And remember to call `Unlock()` afterwards.
-```
+```go
 func rangeMap(m HashMap) error {
-    f := func(interface{}, interface{}) error {
-        // define what to do for each entry in the map
-        return
-    }
-    
+	f := func(interface{}, interface{}) error {
+		// define what to do for each entry in the map
+		return
+	}
+
 	m.Lock()
 	for k, v, ok := m.Next(); ok; k, v, ok = m.Next() {
 	    if err := f(k, v); err != nil {
@@ -98,6 +98,16 @@ func rangeMap(m HashMap) error {
 	return nil
 }
 ```
+A shortcut:
+```go
+m.Iterate(func(_k interface{}, _v interface{}) error {
+	k := _k.(string)
+	v := _v.(int64)
+	// do something
+    return nil
+})
+```
+
 ## Queue
 - FIFO list that can be concurrently accessed
 - can put different data types into the queue
