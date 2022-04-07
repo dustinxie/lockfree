@@ -147,6 +147,17 @@ func (h *hmap) Next() (interface{}, interface{}, bool) {
 
 }
 
+func (h *hmap) Iterate(f func(_k interface{}, _v interface{}) error) error {
+	h.Lock()
+	defer h.Unlock() // unlock even panic
+	for k, v, ok := h.Next(); ok; k, v, ok = h.Next() {
+		if err := f(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (h *hmap) getBucket(hash uint64) *bucket {
 	h.mutex.RLock()
 	b := h.buckets[hash>>(64-h.B)]
