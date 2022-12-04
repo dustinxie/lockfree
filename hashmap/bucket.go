@@ -88,7 +88,7 @@ func (b *bucket) del(node *hashNode) bool {
 	if insert {
 		return false
 	}
-	curr.nxt = nil
+	//curr.nxt = nil  -- not sure the purpose of this, but given that Next() is following the linked list, if an interrupt can occur between these lines, the iteration will stop
 	curr.nxt = next.nxt
 	atomic.AddUint32(&b.count, ^uint32(0))
 	return true
